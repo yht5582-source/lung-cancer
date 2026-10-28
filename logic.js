@@ -1,7 +1,8 @@
 export const stageMatrix={T1a:['IA1','IIA','IIB','IIIA','IIIB'],T1b:['IA2','IIA','IIB','IIIA','IIIB'],T1c:['IA3','IIA','IIB','IIIA','IIIB'],T2a:['IB','IIB','IIIA','IIIB','IIIB'],T2b:['IIA','IIB','IIIA','IIIB','IIIB'],T3:['IIB','IIIA','IIIA','IIIB','IIIC'],T4:['IIIA','IIIA','IIIB','IIIB','IIIC']};
 export function stageGroup(t,n,m){
  if(!['N0','N1','N2a','N2b','N3'].includes(n)||!['M0','M1a','M1b','M1c1','M1c2'].includes(m))return null;
- if(t==='Tis'||t==='T1mi') return n==='N0'&&m==='M0'?(t==='Tis'?'0':'IA1'):null;
+ if(t==='Tis')return n==='N0'&&m==='M0'?'0':null;
+ if(t==='T1mi')t='T1a'; // 微侵襲腺癌屬 T1a(mi)：N0M0＝IA1，其餘組合依 T1a 分組
  if(!stageMatrix[t])return null;
  if(m!=='M0')return ['M1a','M1b'].includes(m)?'IVA':'IVB';
  return stageMatrix[t][['N0','N1','N2a','N2b','N3'].indexOf(n)];
@@ -40,7 +41,12 @@ export function decide(s){
  return result('unresect','不可切除 NSCLC：放化療與鞏固分開評估',body,['esmoearly','nci','nhiici']);
  }
  if(!s.marker||s.marker==='unknown')return result('testing','先補足驅動基因結果',['病況穩定者先完成廣泛分子檢測及 PD-L1。DNA＋RNA 有助識別融合與跳躍變異；組織不足可補血液，但陰性需考慮組織驗證。','重症無法等待時，由 MDT 決定暫行治療；本網站不自動推薦免疫單藥。'],['asco','esmotarget']);
- if(targets[s.marker])return result('target',targets[s.marker][0], [targets[s.marker][1],'先確認變異、檢測品質、既往治療、CNS、器官功能與病人意願。清單為教學例示，不是完整偏好排序或處方。'],['esmotarget','nccn','nci']);
+ if(targets[s.marker]){
+ const body=[targets[s.marker][1]];
+ if(['kras','her2'].includes(s.marker))body.push(!s.pdl||s.pdl==='unknown'?'第一線仍需 PD-L1 結果與免疫禁忌評估，才能依無驅動治療路徑選擇免疫單藥或免疫合併化療。':s.pdl==='high'?'第一線：PD-L1 TPS ≥50%，適合者可討論免疫單藥或免疫合併化療；標記導向藥物多留待後線。':'第一線：PD-L1 TPS <50%，適合者多討論免疫合併化療；標記導向藥物多留待後線。');
+ body.push('先確認變異、檢測品質、既往治療、CNS、器官功能與病人意願。清單為教學例示，不是完整偏好排序或處方。');
+ return result('target',targets[s.marker][0],body,['esmotarget','nccn','nci',...(['kras','her2'].includes(s.marker)?['asco']:[])]);
+ }
  if(!s.pdl||s.pdl==='unknown')return result('pdl','補足 PD-L1 與治療禁忌評估',['無可作用驅動標記不等於可直接指定免疫單藥；取得 PD-L1 並評估自體免疫疾病、器官移植及肺炎病史。'],['asco']);
  const chemo=s.hist==='squamous'?'含鉑＋taxane 類':'含鉑＋pemetrexed';
  return result('immune','無可作用驅動標記：依 PD-L1 與疾病負荷選擇',[s.pdl==='high'?'PD-L1 TPS ≥50%：適合者可討論免疫單藥；快速進展或高負荷者也可考慮免疫合併化療。':'PD-L1 TPS 1–49% 或 <1%：多數適治者討論免疫合併化療，不因低表現就認定完全無免疫效益。',`本病理可討論 ${chemo} 合併適當免疫藥。pemetrexed 不用於鱗癌；免疫禁忌者另評估化療策略。`,'國際門檻不等於健保門檻。肝腎功能、免疫禁忌、出血與共病須由醫師評估。'],['asco','nci','nhiici']);

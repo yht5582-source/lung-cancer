@@ -5,7 +5,7 @@ import {cases,quizzes,sources} from '../content.js';
 const expected={T1a:['IA1','IIA','IIB','IIIA','IIIB'],T1b:['IA2','IIA','IIB','IIIA','IIIB'],T1c:['IA3','IIA','IIB','IIIA','IIIB'],T2a:['IB','IIB','IIIA','IIIB','IIIB'],T2b:['IIA','IIB','IIIA','IIIB','IIIB'],T3:['IIB','IIIA','IIIA','IIIB','IIIC'],T4:['IIIA','IIIA','IIIB','IIIB','IIIC']};
 for(const [t,stages] of Object.entries(expected)) for(const [i,n] of ['N0','N1','N2a','N2b','N3'].entries()) for(const m of ['M0','M1a','M1b','M1c1','M1c2']) test(`${t}${n}${m}`,()=>assert.equal(stageGroup(t,n,m),m==='M0'?stages[i]:['M1a','M1b'].includes(m)?'IVA':'IVB'));
 test('unknown inputs cannot produce stage even with M1',()=>{for(const a of [['','N0','M1b'],['T1a','','M0'],['Tx','N0','M0'],['T1a','N2','M0'],['T1a','N0','']]) assert.equal(stageGroup(...a),null)});
-test('Tis and minimally invasive special handling',()=>{assert.equal(stageGroup('Tis','N0','M0'),'0');assert.equal(stageGroup('T1mi','N0','M0'),'IA1');assert.equal(stageGroup('Tis','N1','M0'),null);assert.equal(stageGroup('T1mi','N0','M1b'),null)});
+test('Tis and minimally invasive special handling',()=>{assert.equal(stageGroup('Tis','N0','M0'),'0');assert.equal(stageGroup('T1mi','N0','M0'),'IA1');assert.equal(stageGroup('Tis','N1','M0'),null);assert.equal(stageGroup('T1mi','N1','M0'),'IIA');assert.equal(stageGroup('T1mi','N2a','M0'),'IIB');assert.equal(stageGroup('T1mi','N0','M1b'),'IVA');assert.equal(stageGroup('Tis','N0','M1a'),null)});
 const base={hist:'adeno',setting:'metastatic',marker:'unknown',pdl:'unknown',ps:'good',phase:'initial'};
 test('incomplete form guarded',()=>assert.equal(decide({...base,hist:''}).kind,'incomplete'));
 test('unknown driver is not negative',()=>assert.equal(decide(base).kind,'testing'));
@@ -27,3 +27,5 @@ test('scoring rejects unanswered and invalid answers, handles zero and full',()=
 test('sparse answer array rejected',()=>assert.equal(grade(quizzes.resident,Array(10)),null));
 test('postCRT cannot silently mean metastatic first line',()=>assert.equal(decide({...base,phase:'postcrt',marker:'egfr'}).kind,'mismatch'));
 test('both tests have balanced answer positions',()=>{for(const qs of Object.values(quizzes)){const counts=[0,0,0,0];qs.forEach(q=>counts[q.answer]++);assert.ok(counts.every(n=>n>=2&&n<=3))}});
+test('KRAS G12C / HER2 first line still routes by PD-L1',()=>{for(const marker of ['kras','her2']){assert.match(decide({...base,marker,pdl:'high'}).body.join(' '),/≥50%/);assert.match(decide({...base,marker,pdl:'low'}).body.join(' '),/<50%/);assert.match(decide({...base,marker}).body.join(' '),/PD-L1 結果/)}});
+test('common EGFR result does not add PD-L1 line',()=>assert.doesNotMatch(decide({...base,marker:'egfr',pdl:'high'}).body.join(' '),/第一線：PD-L1/));
