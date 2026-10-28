@@ -1,38 +1,70 @@
 import {CHECKED,sources,diagnostics,pathology,biomarkers,nhiRows,cases,quizzes} from './content.js';
 import {stageGroup,stageMatrix,decide,grade} from './logic.js';
+import {plan,bsa,NHI_LABEL} from './rx.js';
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ref=ids=>`<div class="refs">依據：${[...new Set(ids)].map(id=>`<a href="${esc(sources[id].url)}" target="_blank" rel="noopener noreferrer" title="${esc(sources[id].version)}">${esc(sources[id].title)} ↗</a>`).join('')}<br>查閱 ${CHECKED}；版本與核對範圍見「來源與版本」。</div>`;
 const head=(title,description)=>`<h1>${title}</h1><p class="intro">${description}</p>`;
-const warning=`<div class="callout"><strong>指引建議與健保給付分開判讀</strong><p>此處產生教學方向，不判定個案適應症或給付資格。台灣許可、完整健保條件與事前審查須另外核對。</p><a href="#nhi">前往台灣健保查核 →</a></div>`;
-const nav=[['path','◇','臨床路徑'],['tnm','▥','TNM9 分期'],['molecular','⌁','病理與分子'],['nhi','▤','台灣健保'],['cases','♧','示範病例'],['quiz','✓','分級測驗'],['sources','▧','來源與版本']];
-let clinical={hist:'',setting:'',marker:'unknown',pdl:'unknown',ps:'',phase:'initial',emergency:false};
+const nav=[['guide','✚','治療指引'],['tnm','▥','TNM9 分期'],['molecular','⌁','病理與分子'],['nhi','▤','台灣健保'],['cases','♧','示範病例'],['quiz','✓','分級測驗'],['sources','▧','來源與版本']];
 let stage={t:'',n:'',m:''};let caseId=1;let quizLevel='resident';const quizState={resident:{answers:[],submitted:false},attending:{answers:[],submitted:false}};
 $('#nav').innerHTML=nav.map(([id,icon,label])=>`<a href="#${id}" data-nav="${id}"><span aria-hidden="true" class="navicon">${icon}</span>${label}</a>`).join('');
 function select(id,label,options,value,help=''){return `<label for="${id}">${label}<select id="${id}" name="${id}">${options.map(([v,l])=>`<option value="${v}"${v===value?' selected':''}>${l}</option>`).join('')}</select>${help?`<span class="help">${help}</span>`:''}</label>`;}
-function renderPath(){
- $('#main').innerHTML=head('從診斷到治療，建立完整決策','以國際指引為教學骨架，逐步確認病理、分期、分子標記與適治性，再獨立核對台灣健保。所有條件皆為模擬輸入。')+`<div class="split"><section class="panel"><h2>臨床決策條件</h2><p class="help">條件變更後，右側（手機在下方）教學建議即時更新。</p><form id="clinical" class="form-grid">`+
+const blankClinical=()=>({hist:'',setting:'',marker:'unknown',egfrType:'ex19',pdl:'unknown',ps:'',phase:'initial',emergency:false,priorLine:'chemoio',priorEgfr:'g12',t790m:false,priorAlk:'g2',ctfi:'short'});
+let clinical=blankClinical();
+let patient={age:'',sex:'M',height:'',weight:'',cr:'',crclManual:'',brain:'none',ioContra:false,cisContra:false,hemoptysis:false,liver:false};
+const num=v=>{const n=parseFloat(v);return Number.isFinite(n)&&n>0?n:null;};
+function crcl(){if(num(patient.crclManual))return num(patient.crclManual);const a=num(patient.age),w=num(patient.weight),c=num(patient.cr);return a&&w&&c?Math.round((140-a)*w/(72*c)*(patient.sex==='F'?0.85:1)):null;}
+const ptView=()=>({age:num(patient.age),height:num(patient.height),weight:num(patient.weight),crcl:crcl(),brain:patient.brain,ioContra:patient.ioContra,cisContra:patient.cisContra,hemoptysis:patient.hemoptysis,liver:patient.liver});
+function input(id,label,value,attrs=''){return `<label for="${id}">${label}<input id="${id}" name="${id}" value="${esc(value)}" ${attrs}></label>`;}
+function check(id,label,on){return `<label class="checkline"><input type="checkbox" id="${id}"${on?' checked':''}>${label}</label>`;}
+function renderGuide(){
+ $('#main').innerHTML=head('肺癌治療指引：選出最適合的治療與藥物','依病理、分期、分子標記與病人狀況，排列首選與替代處方，列出標準劑量、本例估算劑量及台灣健保條文狀態。所有輸入僅在瀏覽器計算，不傳送。')+
+ `<ol class="steps" aria-label="使用步驟"><li><b>1</b>治療目的</li><li><b>2</b>病人評估</li><li><b>3</b>推薦處方</li></ol><div class="split guide"><section class="panel"><h2>病人評估</h2><form id="clinical" class="form-grid" autocomplete="off"><fieldset class="group"><legend>腫瘤</legend>`+
  select('hist','病理類型',[['','請選擇'],['adeno','肺腺癌／非鱗狀 NSCLC'],['squamous','鱗狀 NSCLC'],['nos','NSCLC-NOS／尚未分類'],['sclc','小細胞肺癌 SCLC']],clinical.hist)+
- select('setting','臨床情境',[['','請選擇'],['early','NSCLC 早期、預期局部根治'],['resect','NSCLC 可切除局部／淋巴結陽性'],['unresect','NSCLC 不可切除局部晚期'],['metastatic','NSCLC 轉移性／無法根治的復發'],['limited','SCLC 有限期'],['extensive','SCLC 擴散期']],clinical.setting,'可切除性與有限期範圍須由 MDT 判定。')+
- select('phase','治療階段',[['initial','初治／尚未完成根治療程'],['postcrt','完成根治放化療，評估鞏固'],['progressed','既往治療後疾病進展']],clinical.phase)+
- select('marker','分子檢測',[['unknown','未知／尚未完成'],['none','完整適當檢測，未見可用驅動標記'],['egfr','EGFR Ex19del／L858R'],['exon20','EGFR exon20 insertion'],['alk','ALK 融合'],['ros1','ROS1 融合'],['braf','BRAF V600E'],['met','MET exon14 skipping'],['ret','RET 融合'],['ntrk','NTRK 融合'],['kras','KRAS G12C'],['her2','ERBB2／HER2 活化突變']],clinical.marker,'其他變異、VUS 或僅血液陰性，不能選「完整檢測未見」。SCLC 不以此分流。')+
- select('pdl','PD-L1 TPS（NSCLC 教學分流）',[['unknown','未知／未檢測'],['high','≥50%'],['mid','1–49%'],['low','<1%']],clinical.pdl,'TPS 並非所有藥品的 TC／IC 指標；SCLC 不以 TPS 分流。')+
+ select('setting','臨床情境',[['','請選擇'],['early','NSCLC 早期（≤4 cm、N0）'],['resect','NSCLC 可切除（>4 cm 或淋巴結陽性）'],['unresect','NSCLC 不可切除局部晚期（第Ⅲ期）'],['metastatic','NSCLC 轉移性／無法根治復發'],['limited','SCLC 有限期'],['extensive','SCLC 擴散期']],clinical.setting,'可切除性與有限期範圍由 MDT 判定。')+
+ select('phase','治療階段',[['initial','初治'],['postcrt','完成根治放化療，評估鞏固'],['progressed','既往治療後疾病進展']],clinical.phase)+
+ `<div id="prog-fields">`+select('priorLine','先前治療（NSCLC）',[['chemoio','含鉑＋免疫'],['chemo1','含鉑化療一線（未用免疫）'],['chemo2','兩線化療（未用免疫）'],['tki','驅動基因標靶藥']],clinical.priorLine)+
+ select('priorEgfr','先前 EGFR TKI',[['g12','第一／二代（gefitinib、erlotinib、afatinib、dacomitinib）'],['g3','第三代（osimertinib、aumolertinib）']],clinical.priorEgfr)+check('t790m','再切片／血液檢出 T790M',clinical.t790m)+
+ select('priorAlk','先前 ALK TKI',[['crizo','crizotinib'],['g2','alectinib／brigatinib／ceritinib'],['lorla','lorlatinib']],clinical.priorAlk)+
+ select('ctfi','SCLC 停化療至復發時間',[['short','<3 個月'],['mid','3–6 個月'],['long','≥6 個月']],clinical.ctfi)+`</div>`+
+ select('marker','驅動基因',[['unknown','未知／尚未完成'],['none','完整檢測，無可作用標記'],['egfr','EGFR Ex19del／L858R'],['exon20','EGFR exon20 insertion'],['alk','ALK 融合'],['ros1','ROS1 融合'],['braf','BRAF V600E'],['met','MET exon14 skipping'],['ret','RET 融合'],['ntrk','NTRK 融合'],['kras','KRAS G12C'],['her2','ERBB2／HER2 活化突變']],clinical.marker,'VUS 或僅血液陰性，不能選「無可作用標記」。')+
+ select('egfrType','EGFR 突變型',[['ex19','Exon 19 deletion'],['l858r','Exon 21 L858R']],clinical.egfrType)+
+ select('pdl','PD-L1 TPS',[['unknown','未知／未檢測'],['high','≥50%'],['mid','1–49%'],['low','<1%']],clinical.pdl)+
+ `</fieldset><fieldset class="group"><legend>病人</legend>`+
  select('ps','ECOG 表現狀態',[['','請選擇'],['good','0–1'],['two','2'],['poor','3–4']],clinical.ps)+
- `<label class="checkline"><input type="checkbox" id="emergency"${clinical.emergency?' checked':''}>有大咳血、氣道阻塞、脊髓壓迫、症狀性腦轉移或嚴重低血氧</label><div class="actions"><button class="primary" type="submit">查看教學建議 →</button><button id="reset-clinical" type="button">清除條件</button></div></form></section><section class="panel recommend" aria-labelledby="recommend-title"><h2 id="recommend-title">教學建議</h2><div id="recommendation" role="status" aria-live="polite"></div></section></div>`+
- `<div class="flow" aria-label="診療流程"><div><b>1　病理確診</b><span>取得代表性檢體，保存分子檢測材料</span></div><div><b>2　完整分期</b><span>TNM9、腦部、縱膈及可切除性</span></div><div><b>3　生物標記</b><span>驅動基因與 PD-L1 各自判讀</span></div><div><b>4　MDT 決策</b><span>結合 PS、器官功能、病人目標</span></div></div><section class="panel"><h2>診斷與治療前檢核</h2>${diagnostics.map((d,i)=>`<details${i===0?' open':''}><summary>${d.title}</summary><p>${d.body}</p>${ref(d.refs)}</details>`).join('')}<div class="callout safety"><strong>器官功能與共同照護</strong><p>化療及顯影檢查前評估腎功能與急性變化；CrCl、eGFR 不是可任意互換的指標。透析、肝功能障礙、移植、自體免疫疾病、藥物交互作用與營養不良須專科／藥師個別評估。本工具不計算劑量。</p></div></section>`;
- $('#clinical').addEventListener('submit',e=>{e.preventDefault();readClinical();showDecision();$('.recommend').scrollIntoView({block:'start'});});
- $('#clinical').addEventListener('change',()=>{readClinical();syncForm();showDecision();});
- $('#reset-clinical').onclick=()=>{clinical={hist:'',setting:'',marker:'unknown',pdl:'unknown',ps:'',phase:'initial',emergency:false};renderPath();};
- syncForm();showDecision();
+ `<div class="pair">`+input('age','年齡',patient.age,'type="number" min="18" max="110" inputmode="numeric"')+select('sex','性別',[['M','男'],['F','女']],patient.sex)+`</div><div class="pair">`+input('height','身高 cm',patient.height,'type="number" min="100" max="220" inputmode="decimal"')+input('weight','體重 kg',patient.weight,'type="number" min="25" max="250" inputmode="decimal"')+`</div><div class="pair">`+input('cr','血清肌酸酐 mg/dL',patient.cr,'type="number" min="0.1" max="15" step="0.01" inputmode="decimal"')+input('crclManual','或直接輸入 CrCl',patient.crclManual,'type="number" min="1" max="250" inputmode="decimal"')+`</div><p class="help" id="calc-line"></p>`+
+ select('brain','腦轉移',[['none','無（MRI 確認）'],['asymptomatic','有，無症狀'],['symptomatic','有，症狀性']],patient.brain)+
+ check('ioContra','活動性自體免疫疾病、器官移植或間質性肺病',patient.ioContra)+check('cisContra','不適合 cisplatin（聽力受損、神經病變、心衰、無法水化）',patient.cisContra)+check('hemoptysis','咯血史或腫瘤侵犯大血管',patient.hemoptysis)+check('liver','GOT／GPT ≥60 或總膽紅素 ≥1.5',patient.liver)+check('emergency','急症：大咳血、氣道阻塞、脊髓壓迫、症狀性腦轉移或嚴重低血氧',clinical.emergency)+
+ `</fieldset><div class="actions"><button class="primary" type="submit">查看推薦處方 →</button><button id="reset-clinical" type="button">清除</button></div></form></section><section class="panel recommend" aria-labelledby="recommend-title"><h2 id="recommend-title">治療建議</h2><div id="recommendation" role="status" aria-live="polite"></div></section></div>`+
+ `<section class="panel"><h2>治療前檢核</h2>${diagnostics.map((d,i)=>`<details${i===0?' open':''}><summary>${d.title}</summary><p>${d.body}</p>${ref(d.refs)}</details>`).join('')}</section>`;
+ $('#clinical').addEventListener('submit',e=>{e.preventDefault();readClinical();showPlan();$('.recommend').scrollIntoView({block:'start'});});
+ $('#clinical').addEventListener('input',()=>{readClinical();syncForm();showPlan();});
+ $('#clinical').addEventListener('change',()=>{readClinical();syncForm();showPlan();});
+ $('#reset-clinical').onclick=()=>{clinical=blankClinical();patient={...patient,brain:'none',ioContra:false,cisContra:false,hemoptysis:false,liver:false};renderGuide();};
+ syncForm();showPlan();
 }
-// 依病理停用不相容的臨床情境；SCLC 不以驅動基因／PD-L1 分流
-function syncForm(){const h=clinical.hist,sclc=h==='sclc';
+const show=(id,on)=>{const el=$('#'+id)?.closest('label');if(el)el.hidden=!on;};
+function syncForm(){const h=clinical.hist,sclc=h==='sclc',prog=clinical.phase==='progressed';
  $('#setting').querySelectorAll('option').forEach(o=>{if(!o.value)return;const sc=['limited','extensive'].includes(o.value);o.disabled=!!h&&h!=='nos'&&sc!==sclc;});
  if($('#setting').selectedOptions[0]?.disabled){$('#setting').value='';clinical.setting='';}
- for(const k of ['marker','pdl'])$('#'+k).disabled=sclc;
+ show('marker',!sclc);show('pdl',!sclc);show('egfrType',!sclc&&clinical.marker==='egfr');
+ $('#prog-fields').hidden=!prog;show('priorLine',prog&&!sclc);show('priorEgfr',prog&&clinical.marker==='egfr');show('t790m',prog&&clinical.marker==='egfr'&&clinical.priorEgfr==='g12');show('priorAlk',prog&&clinical.marker==='alk');show('ctfi',prog&&sclc);
+ const p=ptView(),b=bsa(p.height,p.weight);$('#calc-line').textContent=[b?`BSA ${b.toFixed(2)} m²（Mosteller）`:'',p.crcl?`CrCl ${p.crcl} mL/min${num(patient.crclManual)?'（手動）':'（Cockcroft-Gault，實際體重）'}`:'輸入年齡、體重、肌酸酐以計算 CrCl'].filter(Boolean).join('　');
 }
-function readClinical(){for(const k of ['hist','setting','marker','pdl','ps','phase'])clinical[k]=$('#'+k).value;if(clinical.hist==='sclc'){clinical.marker='unknown';clinical.pdl='unknown';}clinical.emergency=$('#emergency').checked;}
-function showDecision(){const r=decide(clinical);$('#recommendation').innerHTML=`<div class="callout ${r.kind==='urgent'?'danger':'safety'}">${r.title}</div><ul>${r.body.map(b=>`<li>${b}</li>`).join('')}</ul>${r.nhi.length?`<div class="callout tw"><strong>台灣健保條文（第9節 115.09.22，查核 ${CHECKED}）</strong><ul>${r.nhi.map(b=>`<li>${b}</li>`).join('')}</ul><p>符合條文仍須事前審查；本頁不判定個案核准。</p></div>`:''}${warning}${ref(r.refs)}`;}
+function readClinical(){for(const k of ['hist','setting','marker','egfrType','pdl','ps','phase','priorLine','priorEgfr','priorAlk','ctfi'])clinical[k]=$('#'+k).value;clinical.t790m=$('#t790m').checked;clinical.emergency=$('#emergency').checked;if(clinical.hist==='sclc'){clinical.marker='unknown';clinical.pdl='unknown';}
+ for(const k of ['age','sex','height','weight','cr','crclManual','brain'])patient[k]=$('#'+k).value;for(const k of ['ioContra','cisContra','hemoptysis','liver'])patient[k]=$('#'+k).checked;}
+const nhiBadge=n=>`<span class="nhi nhi-${n.k}" title="${esc(n.t)}">${NHI_LABEL[n.k]}</span>`;
+function showPlan(){
+ const r=plan(clinical,ptView());let h='';
+ if(r.goal)h+=`<div class="goal"><span>治療目的</span><strong>${r.goal[0]}</strong><p>${r.goal[1]}</p></div>`;
+ if(r.stop){const g=r.stop;$('#recommendation').innerHTML=h+`<div class="callout ${g.kind==='urgent'?'danger':'safety'}"><strong>${g.title}</strong></div><ul>${g.body.map(b=>`<li>${b}</li>`).join('')}</ul>${ref(g.refs)}`;return;}
+ const g=decide(clinical);
+ h+=`<details class="why"><summary>臨床判讀：${g.title}</summary><ul>${g.body.map(b=>`<li>${b}</li>`).join('')}</ul></details>`;
+ if(r.note)h+=`<div class="callout safety">${r.note}</div>`;
+ h+=r.options.map((o,i)=>`<article class="rx${o.avoid?' avoid':''}"><div class="rxhead"><span class="tier tier-${o.avoid?'avoid':o.tier}">${o.avoid?'不建議':o.tier}</span><h3>${i+1}. ${o.name}</h3>${nhiBadge(o.nhi)}</div><p class="rxwhy">${o.why}</p><div class="table-wrap"><table class="dose"><thead><tr><th>藥物</th><th>標準劑量</th><th>本例估算</th><th>給藥</th></tr></thead><tbody>${o.drugs.map(d=>`<tr><td><b>${d.n}</b>${d.note?`<small>${d.note}</small>`:''}${d.alt?`<small>或 carboplatin ${d.alt.std}${d.alt.calc?`（${d.alt.calc}）`:''}</small>`:''}</td><td>${d.std}</td><td>${d.calc||'—'}</td><td>${d.r||''} ${d.when||''}</td></tr>`).join('')}</tbody></table></div>${o.any?'<p class="help">以上藥物擇一使用。</p>':''}<p class="cycle"><b>療程</b>${o.cycle}<span>依據 ${o.trial}</span></p><p class="nhitext"><b>健保</b>${o.nhi.t}</p>${o.flags.length||o.pre.length?`<ul class="flags">${[...o.flags,...o.pre].map(f=>`<li>${f}</li>`).join('')}</ul>`:''}</article>`).join('');
+ h+=`<div class="callout"><strong>處方前覆核</strong><p>劑量為仿單或樞紐試驗之標準成人劑量，本例估算以 Mosteller BSA、Calvert（CrCl 上限 125）計算並四捨五入；實際處方須依台灣仿單、肝腎功能、前次毒性、交互作用與藥師覆核。健保狀態依第9節（115.09.22）條文，仍須事前審查。</p></div>${ref([...g.refs,'nhichapter'])}`;
+ $('#recommendation').innerHTML=h;
+}
 const tOptions=[['','請先選擇 T'],['Tis','Tis｜原位癌（需病理條件）'],['T1mi','T1mi｜微侵襲性腺癌'],['T1a','T1a｜≤1 cm'],['T1b','T1b｜>1 至 ≤2 cm'],['T1c','T1c｜>2 至 ≤3 cm'],['T2a','T2a｜>3 至 ≤4 cm／T2特徵'],['T2b','T2b｜>4 至 ≤5 cm'],['T3','T3｜>5 至 ≤7 cm／T3特徵'],['T4','T4｜>7 cm／T4特徵']];
 function renderTNM(){
  $('#main').innerHTML=head('TNM9 分期工具','先依完整影像、取樣與病理決定 T、N、M，再查期別。此工具不從腫瘤直徑單獨自動推定 T，亦不判定可切除性。')+`<section class="panel"><h2>選擇解剖分期描述</h2><div class="form-grid inline-form">`+
@@ -50,9 +82,9 @@ function renderNHI(){
 }
 function renderCases(){
  const c=cases.find(c=>c.id===caseId);
- $('#main').innerHTML=head('六個病例，走完決策的每一步','全部為虛構教學情境。先自行判斷，再展開分期推理；可將病例條件載入互動路徑，檢視條件如何影響建議。')+`<div class="cases-layout"><nav class="case-menu" aria-label="病例選擇">${cases.map(c=>`<button data-case="${c.id}" class="${c.id===caseId?'active':''}" aria-pressed="${c.id===caseId}"><small>病例 ${String(c.id).padStart(2,'0')} · ${c.tag}</small>${c.title}</button>`).join('')}</nav><article class="panel case-content"><span class="case-number">病例 ${String(c.id).padStart(2,'0')}</span><h2>${c.title}</h2><h3>病人與臨床資料</h3><p>${c.patient}</p><h3>必要檢查與已知結果</h3><p>${c.workup}</p><details><summary>顯示 TNM9 分期與推理</summary><div class="stage-display"><strong>${c.stage}</strong><b>${c.tnm.join(' ')}</b></div><p>${c.reason}</p></details><h3>治療決策與理由</h3><p>${c.treatment}</p><h3>替代策略與不確定性</h3><p>${c.alternatives}</p><div class="callout"><h3>台灣健保查核</h3><p>${c.nhi}</p></div><h3>追蹤與安全重點</h3><p>${c.follow}</p><div class="actions"><button class="primary" id="load-case">載入此例的臨床路徑 →</button><button id="load-stage">載入 TNM9 分期</button></div>${ref(c.refs)}</article></div>`;
+ $('#main').innerHTML=head('六個病例，走完決策的每一步','全部為虛構教學情境。先自行判斷，再展開分期推理；可將病例條件載入治療指引，檢視推薦處方與健保狀態。')+`<div class="cases-layout"><nav class="case-menu" aria-label="病例選擇">${cases.map(c=>`<button data-case="${c.id}" class="${c.id===caseId?'active':''}" aria-pressed="${c.id===caseId}"><small>病例 ${String(c.id).padStart(2,'0')} · ${c.tag}</small>${c.title}</button>`).join('')}</nav><article class="panel case-content"><span class="case-number">病例 ${String(c.id).padStart(2,'0')}</span><h2>${c.title}</h2><h3>病人與臨床資料</h3><p>${c.patient}</p><h3>必要檢查與已知結果</h3><p>${c.workup}</p><details><summary>顯示 TNM9 分期與推理</summary><div class="stage-display"><strong>${c.stage}</strong><b>${c.tnm.join(' ')}</b></div><p>${c.reason}</p></details><h3>治療決策與理由</h3><p>${c.treatment}</p><h3>替代策略與不確定性</h3><p>${c.alternatives}</p><div class="callout"><h3>台灣健保查核</h3><p>${c.nhi}</p></div><h3>追蹤與安全重點</h3><p>${c.follow}</p><div class="actions"><button class="primary" id="load-case">載入此例到治療指引 →</button><button id="load-stage">載入 TNM9 分期</button></div>${ref(c.refs)}</article></div>`;
  document.querySelectorAll('[data-case]').forEach(el=>el.onclick=()=>{caseId=Number(el.dataset.case);renderCases();});
- $('#load-case').onclick=()=>{clinical={...c.load,phase:'initial',emergency:false};location.hash='path';};$('#load-stage').onclick=()=>{stage={t:c.tnm[0],n:c.tnm[1],m:c.tnm[2]};location.hash='tnm';};
+ $('#load-case').onclick=()=>{clinical={...blankClinical(),...c.load};location.hash='guide';};$('#load-stage').onclick=()=>{stage={t:c.tnm[0],n:c.tnm[1],m:c.tnm[2]};location.hash='tnm';};
 }
 function renderQuiz(){
  const qs=quizzes[quizLevel],state=quizState[quizLevel],r=state.submitted?grade(qs,state.answers):null;
@@ -63,9 +95,9 @@ function renderQuiz(){
  $('#quiz-reset').onclick=()=>{state.answers=[];state.submitted=false;renderQuiz();};document.querySelectorAll('[data-level]').forEach(el=>el.onclick=()=>{quizLevel=el.dataset.level;renderQuiz();});
 }
 function renderSources(){
- $('#main').innerHTML=head('來源、版本與證據邊界','內容以可追溯的原始機構、學會指引、原始研究及健保官方資料建立；本版為人工查核快照，不會自動同步法規或 Living Guidelines。')+`<section class="panel"><h2>如何使用本版資料</h2><ul><li>IASLC：TNM9 分組；WHO：分類架構；ESMO／ASCO／NCI：可讀取之診療證據摘要。</li><li>NCCN：確認公開發表的 4.2026 版本及主題，專業版全文此次未能完整存取；不宣稱本站為 NCCN 最新完整翻譯或官方產品。</li><li>健保藥品：2026-10-28 逐條核對第9節（115.09.22）全部肺癌相關條文及 115.08.01／115.10.01 修訂；第9節未見條文的藥品（RET、KRAS G12C、HER2 突變等）標示為「未見」，不等於確認未收載。</li><li>NGS：一般規範與歷史附表可讀；2026 最新完整支付標準壓縮檔未完成解讀，因此目前適應症保留待核對。</li><li>轉換 TNM9 時保留原試驗使用的分期版本與解剖條件；不要直接把新期別移植至舊試驗或健保條件。</li></ul><div class="callout safety"><strong>使用與維護</strong><p>教學稿須經院內胸腔／腫瘤專科、病理科及健保申報端審閱後，才可納入正式院內流程。每次重大指引或健保公告後更新來源日期、內容與測試。本站沒有經過外部專家臨床驗證，也不蒐集個資。</p></div><p class="release">v1.2 · 建置與查核日 ${CHECKED} · 本站為獨立教育整理，未經 NCCN、ESMO、IASLC、WHO 或健保署背書。</p></section><section class="panel"><h2>逐項來源登錄</h2>${Object.entries(sources).map(([id,s])=>`<article id="source-${id}" class="source-item"><h2><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${s.title} ↗</a></h2><div class="meta">${s.version} · 查閱 ${CHECKED}</div><p>${s.scope}</p></article>`).join('')}</section>`;
+ $('#main').innerHTML=head('來源、版本與證據邊界','內容以可追溯的原始機構、學會指引、原始研究及健保官方資料建立；本版為人工查核快照，不會自動同步法規或 Living Guidelines。')+`<section class="panel"><h2>如何使用本版資料</h2><ul><li>IASLC：TNM9 分組；WHO：分類架構；ESMO／ASCO／NCI：可讀取之診療證據摘要。</li><li>NCCN：確認公開發表的 4.2026 版本及主題，專業版全文此次未能完整存取；不宣稱本站為 NCCN 最新完整翻譯或官方產品。</li><li>健保藥品：2026-10-28 逐條核對第9節（115.09.22）全部肺癌相關條文及 115.08.01／115.10.01 修訂；第9節未見條文的藥品（RET、KRAS G12C、HER2 突變等）標示為「未見」，不等於確認未收載。</li><li>NGS：一般規範與歷史附表可讀；2026 最新完整支付標準壓縮檔未完成解讀，因此目前適應症保留待核對。</li><li>轉換 TNM9 時保留原試驗使用的分期版本與解剖條件；不要直接把新期別移植至舊試驗或健保條件。</li></ul><div class="callout safety"><strong>使用與維護</strong><p>教學稿須經院內胸腔／腫瘤專科、病理科及健保申報端審閱後，才可納入正式院內流程。每次重大指引或健保公告後更新來源日期、內容與測試。本站沒有經過外部專家臨床驗證，也不蒐集個資。</p></div><p class="release">v2.0 · 建置與查核日 ${CHECKED} · 本站為獨立教育整理，未經 NCCN、ESMO、IASLC、WHO 或健保署背書。</p></section><section class="panel"><h2>逐項來源登錄</h2>${Object.entries(sources).map(([id,s])=>`<article id="source-${id}" class="source-item"><h2><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${s.title} ↗</a></h2><div class="meta">${s.version} · 查閱 ${CHECKED}</div><p>${s.scope}</p></article>`).join('')}</section>`;
 }
-const renderers={path:renderPath,tnm:renderTNM,molecular:renderMolecular,nhi:renderNHI,cases:renderCases,quiz:renderQuiz,sources:renderSources};
-function route(){const key=location.hash.slice(1);const page=renderers[key]?key:'path';document.querySelectorAll('[data-nav]').forEach(el=>{el.classList.toggle('active',el.dataset.nav===page);if(el.dataset.nav===page)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});$('#breadcrumb').textContent=nav.find(r=>r[0]===page)[2];document.title=`${nav.find(r=>r[0]===page)[2]}｜肺癌臨床教學`;renderers[page]();window.scrollTo(0,0);const act=document.querySelector('nav a.active'),bar=$('#nav');if(act&&bar.scrollWidth>bar.clientWidth)bar.scrollLeft=act.offsetLeft-(bar.clientWidth-act.offsetWidth)/2;$('#main').focus({preventScroll:true});}
+const renderers={guide:renderGuide,tnm:renderTNM,molecular:renderMolecular,nhi:renderNHI,cases:renderCases,quiz:renderQuiz,sources:renderSources};
+function route(){const key=location.hash.slice(1);const page=renderers[key]?key:'guide';document.querySelectorAll('[data-nav]').forEach(el=>{el.classList.toggle('active',el.dataset.nav===page);if(el.dataset.nav===page)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});$('#breadcrumb').textContent=nav.find(r=>r[0]===page)[2];document.title=`${nav.find(r=>r[0]===page)[2]}｜肺癌治療指引`;renderers[page]();window.scrollTo(0,0);const act=document.querySelector('nav a.active'),bar=$('#nav');if(act&&bar.scrollWidth>bar.clientWidth)bar.scrollLeft=act.offsetLeft-(bar.clientWidth-act.offsetWidth)/2;$('#main').focus({preventScroll:true});}
 $('.skip').onclick=e=>{e.preventDefault();$('#main').focus();};
 window.addEventListener('hashchange',route);$('#print').onclick=()=>{document.querySelectorAll('details').forEach(d=>d.open=true);window.print();};route();
