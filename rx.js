@@ -92,7 +92,7 @@ export const REG={
  durvaep:{name:'Durvalumab＋含鉑＋etoposide',drugs:[Dg('Durvalumab',{mg:1500},'IV','D1'),PLAT(75,5),Dg('Etoposide',{mgm2:100},'IV','D1–3')],cycle:'每21天×4，之後 durvalumab 1500 mg 每4週',trial:'CASPIAN',io:true,nhi:(s,pt)=>ioNhi(s,pt,pt.brain!=='none'?NHI('fail','9.69 SCLC 限無腦部或脊髓轉移'):NHI('yes','9.69 擴散期初治（P021）：cisplatin 或 carboplatin 皆列'))},
  epes:{name:'含鉑＋etoposide（化療）',drugs:[PLAT(75,5),Dg('Etoposide',{mgm2:100},'IV','D1–3')],cycle:'每21天×4–6',trial:'標準化療',nhi:(s,pt)=>NHI('cond',`一般化療給付；${carboNhi(pt)}`)},
  rechal:{name:'含鉑＋etoposide 再挑戰',drugs:[PLAT(75,5),Dg('Etoposide',{mgm2:100},'IV','D1–3')],cycle:'每21天×4–6',trial:'Baize 2020',nhi:(s,pt)=>NHI('cond',`一般化療給付；${carboNhi(pt)}`)},
- tarla:{name:'Tarlatamab',drugs:[Dg('Tarlatamab',{txt:'C1D1 1 mg → C1D8、D15 10 mg → 之後每2週 10 mg'},'IV','')],cycle:'持續至惡化',trial:'DeLLphi-304',pre:['首兩劑後住院或密切監測 CRS 與 ICANS 24–48 小時。'],nhi:()=>NHI('no','第9節未見給付規定')},
+ tarla:{name:'Tarlatamab',drugs:[Dg('Tarlatamab',{txt:'C1D1 1 mg → C1D8、D15 10 mg → 之後每2週 10 mg'},'IV','')],cycle:'持續至惡化',trial:'DeLLphi-304',pre:['第1週期 D1、D8 自輸注開始監測 22–24 小時（CRS、ICANS），並建議共 48 小時內留在可於 1 小時內抵達合適醫療機構處（FDA 仿單）。'],nhi:()=>NHI('no','第9節未見給付規定')},
  lurbi:{name:'Lurbinectedin',drugs:[Dg('Lurbinectedin',{mgm2:3.2},'IV','D1')],cycle:'每21天',trial:'Trigo 2020',nhi:()=>NHI('no','第9節未見給付規定')},
  topo:{name:'Topotecan',drugs:[Dg('Topotecan',{mgm2:1.5},'IV','D1–5（口服 2.3 mg/m² D1–5）')],cycle:'每21天',trial:'von Pawel 1999',nhi:()=>NHI('yes','9.16：SCLC 第二線（第一線含鉑後）')}
 };
@@ -183,7 +183,7 @@ function flagsFor(reg,s,pt){
  if(/Topotecan/.test(names)&&pt.crcl&&pt.crcl<40)f.push('CrCl 20–39：topotecan IV 減為 0.75 mg/m²。');
  if(/Bevacizumab/.test(names)&&(s.hist==='squamous'||pt.hemoptysis)){f.push('鱗癌或咯血史：bevacizumab 出血風險，避免。');avoid=true;}
  if(reg.io&&pt.ioContra){f.push('活動性自體免疫疾病、器官移植或間質性肺病：免疫治療相對禁忌，須專科評估。');avoid=true;}
- if(reg.io&&s.priorLine==='tki')f.push('驅動基因陽性標靶後免疫效益低，osimertinib 後接免疫有肺炎風險。');
+ if(reg.io&&s.priorLine==='tki')f.push('驅動基因陽性標靶後免疫效益低。順序風險：回溯資料的嚴重 irAE 見於先免疫、3 個月內接 osimertinib（24%），osimertinib 後接免疫未見（0/29）。');
  if(/Osimertinib|Lorlatinib|Selpercatinib|Crizotinib|Entrectinib/.test(names))f.push('檢查交互作用（強效 CYP3A 誘導／抑制劑）及 QTc。');
  if(pt.brain==='symptomatic')f.push('症狀性腦轉移：先評估類固醇、SRS／手術；'+(reg.cns?'本方案中樞活性佳。':'本方案中樞活性有限。'));
  else if(pt.brain==='asymptomatic'&&reg.cns)f.push('具中樞活性，無症狀腦轉移可先全身治療並密切 MRI 追蹤。');
